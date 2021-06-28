@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26" zv="IRIS for Windows (x86-64) 2021.1 (Build 215U)" ts="2021-06-25 15:26:07">
+<Class name="Web.OAUTH2.Google">
+<Super>%CSP.Page</Super>
+<TimeChanged>65920,55523.941992</TimeChanged>
+<TimeCreated>64439,32611.705212</TimeCreated>
+
+<Parameter name="APP">
+<Default>Google</Default>
+</Parameter>
+
+<Method name="OnPage">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	&html<<html>
+<head>
+<style>
+ * { font-family: verdana; }
+ body { text-align: center;	}
+ label { vertical-align: top; }
+</style>
+
+<script language='javascript'>
+	
+	function logout()
+	{
+		if (confirm('Logout?')) {
+			#server(..Logout())#;
+			window.location.replace("Web.OAUTH2.Google.cls?CacheLogout=end");
+		}
+	}
+	
+</script>>
+	Write ..HyperEventHead(),!
+	&html<</head>
+<body>
+
+<a href="javascript:logout();">Sign out</a>
+
+<h1>Welcome to Google API Demo!</h1>
+<div id="res">
+>
+	
+	#define LOCALHOST	$System.INetInfo.LocalHostName()
+	#dim %request as %CSP.Request
+	try {
+
+		w "You're connected to this client application as <span style='color: blue;'>"_$username_"</span>, and hold <span style='color: blue;'>"_$roles_"</span> roles.<p>"
+		
+		
+		set scope="openid https://www.googleapis.com/auth/userinfo.email "_
+  		"https://www.googleapis.com/auth/userinfo.profile "_
+  		"https://www.googleapis.com/auth/drive.metadata.readonly "_
+  		"https://www.googleapis.com/auth/calendar.readonly"
+
+		// Check if we have an access token from oauth2 server
+		set isAuthorized=##class(%SYS.OAuth2.AccessToken).IsAuthorized(..#APP,,scope,.accessToken,.idtoken,.responseProperties,.error)		
+
+
+		s ff="c:\temp\DEBUG.LOG" o ff:("WAS"):2 u ff w !,"--------------------------" w  d $System.OBJ.Dump(%request) w ! d $System.OBJ.Dump(%response) w ! d $System.OBJ.Dump(%session) c ff
+		
+		if isAuthorized {
+			w "<span style='color: green;'>You're now authorized to use resources!</span><p>"
+
+			// Google has no introspection endpoint - nothing to call - the introspection endpoint and display result -- see RFC 7662.  
+			w "<h3>Data from <span style='color:red;'>GetUserInfo API</span></h3>"
+			try {
+				// show user info from access token
+			    $$$THROWONERROR(sc,##class(%SYS.OAuth2.AccessToken).GetUserinfo(..#APP,accessToken,,.jsonObject))
+			    w jsonObject.%ToJSON()
+
+				set tHttpRequest=##class(%Net.HttpRequest).%New()
+			    $$$THROWONERROR(sc,##class(%SYS.OAuth2.AccessToken).AddAccessToken(tHttpRequest,"query","GOOGLE",..#APP))
+			} catch (e) {
+			  w "<h3><span style='color: red;'>ERROR: ",$zcvt(e.DisplayString(),"O","HTML")_"</span></h3>"    
+			}
+			/******************************************
+			*                                         *
+			*      Retrieve info from other APIs      *
+			*                                         *
+			******************************************/
+			w "<hr>"
+			do ..RetrieveAPIInfo("/drive/v3/files")
+			do ..RetrieveAPIInfo("/calendar/v3/users/me/calendarList")			
+		} else {
+			if $isobject($g(error)) {
+				 w error.AsString()
+			} else {
+				if $g(%request.CgiEnvs("HTTP_REFERER")) = "https://accounts.google.com/" {
+					w "<span style='color: green;'>You're now authorized to use resources!</span><p>"
+					s isAuthorized=1
+					 s msg="Please navigate "
+				} else {
+					s isAuthorized=0
+					w "<span style='color: red;'>In order to use Google APIs, you must authorize via OAuth2.</span><br/>"
+					s msg="Please authorize yourself "					
+				}
+				set redirect="https://"_$$$LOCALHOST_"/app/csp/demos2/Web.OAUTH2.Google.cls"
+						
+			    set properties("approval_prompt")="force"
+  				set properties("include_granted_scopes")="true"
+				set url=##class(%SYS.OAuth2.Authorization).GetAuthorizationCodeEndpoint(..#APP,scope,redirect,.properties,.isAuthorized,.sc)
+				$$$ThrowOnError(sc) 
+				if isAuthorized {
+					w msg_"<a href="_url_">here</a>."
+				} else {
+					w msg_"<a href="_url_">here</a>."
+				}
+			}
+		}
+				
+		&html<</div></body></html>>
+	} catch (e) {
+		w "<p><span sty='color: red;'>ERROR:"_e.DisplayString()_"</span>"
+		d BACK^%ETN
+	} 
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="RetrieveAPIInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>api:%String</FormalSpec>
+<Implementation><![CDATA[
+	#define OAUTH2ROOT	"https://www.googleapis.com"
+	#define APP	"Demo Web Client"
+	w "<h3>Data from <span style='color:red;'>"_api_"</span></h3><p>"
+	try {
+		set tHttpRequest=##class(%Net.HttpRequest).%New()
+		$$$THROWONERROR(sc,##class(%SYS.OAuth2.AccessToken).AddAccessToken(tHttpRequest,"query","GOOGLE",..#APP))
+		$$$THROWONERROR(sc,tHttpRequest.Get($$$OAUTH2ROOT_api))
+		set tHttpResponse=tHttpRequest.HttpResponse
+		s tJSONString=tHttpResponse.Data.Read()
+		if $e(tJSONString)'="{" {
+		  // not a JSON
+		  d tHttpResponse.OutputToDevice()
+		} else {      
+		  w tJSONString
+		  w "<hr/>"
+		}
+	} catch (e) {
+		w "<h3><span style='color: red;'>ERROR: ",$zcvt(e.DisplayString(),"O","HTML")_"</span></h3>"
+	}
+]]></Implementation>
+</Method>
+
+<Method name="Logout">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+	set %session.AppTimeout=1
+	set %session.EndSession=1
+]]></Implementation>
+</Method>
+</Class>
+</Export>
